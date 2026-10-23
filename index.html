@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YS Academy — Web Development Course</title>
+  <meta name="description" content="YS Academy — دورة تطوير الويب المتكاملة — Eng. Yousef S Abdelaziz">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Fira+Code:wght@400;500;600&family=Cairo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css">
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, setDoc, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAH1A-7L4QVJYLByUzTfnHsYIm_Cf1q6zA",
+      authDomain: "ys-academy-549e9.firebaseapp.com",
+      projectId: "ys-academy-549e9",
+      storageBucket: "ys-academy-549e9.firebasestorage.app",
+      messagingSenderId: "39423024331",
+      appId: "1:39423024331:web:91eae0a1bfbdfac0d94f4e"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // حفظ طالب جديد في Firebase
+    window.saveUserToFirebase = async function(user) {
+      try {
+        const snapshot = await getDocs(collection(db, "students"));
+        const exists = snapshot.docs.find(d => d.data().email === user.email);
+        if (exists) return;
+        await addDoc(collection(db, "students"), {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          joinDate: user.joinDate,
+          status: 'pending',
+          allowedLectures: [],
+          progress: {},
+          taskSubmissions: {}
+        });
+      } catch(e) { console.log("Firebase save error:", e); }
+    };
+
+    // جلب كل الطلاب من Firebase
+    window.getStudentsFromFirebase = async function() {
+      try {
+        const snapshot = await getDocs(collection(db, "students"));
+        return snapshot.docs.map(d => ({ ...d.data(), _docId: d.id }));
+      } catch(e) { return []; }
+    };
+
+    // تحديث حالة الطالب
+    window.updateStudentStatusInFirebase = async function(userId, status) {
+      try {
+        const snapshot = await getDocs(collection(db, "students"));
+        for (const docSnap of snapshot.docs) {
+          const data = docSnap.data();
+          if (data.id === userId || data.email === userId) {
+            await updateDoc(doc(db, "students", docSnap.id), { status: status });
+            console.log("Firebase status updated:", data.email, "=>", status);
+            break;
+          }
+        }
+      } catch(e) { console.log("Firebase status update error:", e); }
+    };
+
+    // تحديث بيانات الطالب
+    window.updateStudentInFirebase = async function(userId, data) {
+      try {
+        const snapshot = await getDocs(collection(db, "students"));
+        const docSnap = snapshot.docs.find(d => d.data().id === userId);
+        if (docSnap) await updateDoc(doc(db, "students", docSnap.id), data);
+      } catch(e) { console.log("Firebase update error:", e); }
+    };
+
+    // حذف طالب
+    window.deleteStudentFromFirebase = async function(userId) {
+      try {
+        const snapshot = await getDocs(collection(db, "students"));
+        const docSnap = snapshot.docs.find(d => d.data().id === userId);
+        if (docSnap) await deleteDoc(doc(db, "students", docSnap.id));
+      } catch(e) { console.log("Firebase delete error:", e); }
+    };
+
+    // حفظ إعدادات الإخفاء
+    window.syncHiddenToFirebase = async function(hiddenData) {
+      try {
+        await setDoc(doc(db, "settings", "hidden"), hiddenData);
+      } catch(e) { console.log("Firebase hidden sync error:", e); }
+    };
+
+    // تحميل إعدادات الإخفاء عند البدء
+    window.loadHiddenFromFirebase = async function() {
+      try {
+        const snap = await getDoc(doc(db, "settings", "hidden"));
+        if (snap.exists()) {
+          const data = snap.data();
+          localStorage.setItem('wdc_hidden', JSON.stringify(data));
+          console.log("Hidden settings loaded from Firebase:", data);
+        } else {
+          console.log("No hidden settings in Firebase yet");
+        }
+      } catch(e) { console.log("Load hidden error:", e); }
+    };
+
+    window.loadHiddenFromFirebase();
+    console.log("Firebase connected — YS Academy");
+  </script>
+</head>
+<body>
+
+<div class="bg-mesh"></div>
+<div id="toast-container"></div>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal-box" id="modal-box"></div>
+</div>
+
+<!-- NAVBAR -->
+<nav id="navbar">
+  <div class="nav-inner">
+    <div class="nav-logo" onclick="Router.go('page-home')">
+      <div class="nav-logo-icon">YS</div>
+      <div class="nav-logo-text">YS Academy<span>Web Development — 2026</span></div>
+    </div>
+    <div class="nav-links">
+      <span class="nav-link" onclick="Router.go('page-home')">الرئيسية</span>
+      <span class="nav-link" onclick="Router.go('page-curriculum')">المنهج</span>
+      <span class="nav-link" onclick="Router.go('page-materials')">المواد</span>
+      <span class="nav-link" onclick="Router.go('page-git')">Git & GitHub</span>
+      <span class="nav-link" onclick="Router.go('page-support')">الدعم</span>
+      <span class="nav-link" id="nav-admin-link" style="display:none;color:var(--gold)" onclick="Router.go('page-admin')">⚙ Admin</span>
+    </div>
+    <div class="nav-actions">
+      <div id="nav-guest" style="display:flex;align-items:center;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="Router.go('page-login')">تسجيل الدخول</button>
+        <button class="btn btn-primary btn-sm" onclick="Router.go('page-register')">اشترك الآن</button>
+      </div>
+      <div id="nav-user" class="hidden" style="display:flex;align-items:center;gap:8px">
+        <div class="nav-user" onclick="Router.go('page-dashboard')">
+          <div class="nav-avatar" id="nav-avatar">Y</div>
+          <span id="nav-user-name" style="font-size:.85rem;font-weight:600">Student</span>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="logout()">خروج</button>
+      </div>
+    </div>
+    <button class="hamburger" id="hamburger" onclick="toggleMobileMenu()" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<div class="mobile-menu" id="mobile-menu">
+  <span class="nav-link" onclick="Router.go('page-home')">🏠 الرئيسية</span>
+  <span class="nav-link" onclick="Router.go('page-curriculum')">📚 المنهج</span>
+  <span class="nav-link" onclick="Router.go('page-dashboard')">📊 لوحة التحكم</span>
+  <span class="nav-link" onclick="Router.go('page-tasks')">✅ المهام</span>
+  <span class="nav-link" onclick="Router.go('page-materials')">📁 المواد</span>
+  <span class="nav-link" onclick="Router.go('page-git')">🐙 Git & GitHub</span>
+  <span class="nav-link" onclick="Router.go('page-support')">💬 الدعم</span>
+  <div style="border-top:1px solid var(--white-10);margin-top:8px;padding-top:12px;display:flex;gap:8px">
+    <button class="btn btn-ghost btn-sm flex-1" onclick="Router.go('page-login')">دخول</button>
+    <button class="btn btn-primary btn-sm flex-1" onclick="Router.go('page-register')">اشترك</button>
+  </div>
+</div>
+
+<div id="app">
+
+<!-- HOME PAGE -->
+<div id="page-home" class="page active page-content">
+  <section class="hero">
+    <div class="hero-bg">
+      <div class="hero-grid"></div>
+      <div class="hero-orb-1"></div>
+      <div class="hero-orb-2"></div>
+    </div>
+    <div class="container">
+      <div class="hero-content">
+        <div>
+          <div class="hero-badge"><div class="hero-badge-dot"></div>يبدأ 01/10/2026 — Starts October 1st, 2026</div>
+          <h1 class="hero-title">
+            <span class="hero-title-en">YS ACADEMY</span>
+            <span class="hero-title-highlight">WEB DEVELOPMENT</span>
+            <span class="hero-title-ar">دورة تطوير الويب المتكاملة</span>
+          </h1>
+          <p class="hero-desc">من الأساسيات لحد تصميم وبناء مشروع ويب متكامل</p>
+          <div class="hero-meta">
+            <div class="hero-meta-item"><span class="hero-meta-icon">📅</span> 01/10/2026</div>
+            <div class="hero-meta-item"><span class="hero-meta-icon">📚</span> 12 محاضرة</div>
+            <div class="hero-meta-item"><span class="hero-meta-icon">📆</span> 3 محاضرات أسبوعياً</div>
+            <div class="hero-meta-item"><span class="hero-meta-icon">⏳</span> 4 أسابيع</div>
+            <div class="hero-meta-item"><span class="hero-meta-icon">👨‍💻</span> Eng. Yousef S Abdelaziz</div>
+          </div>
+          <div class="hero-actions">
+            <button class="btn btn-gold btn-lg" onclick="Router.go('page-register')">🚀 اشترك الآن</button>
+            <button class="btn btn-outline btn-lg" onclick="Router.go('page-curriculum')">استكشف الكورس ↓</button>
+          </div>
+        </div>
+        <div class="hero-visual">
+          <div class="floating-badge floating-badge-1"><span style="color:var(--success)">✓</span> HTML · CSS · JavaScript</div>
+          <div class="code-window">
+            <div class="code-window-header">
+              <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+              <span class="window-title">index.html — ys-academy</span>
+            </div>
+            <div class="code-body">
+              <div class="code-line"><span class="ln">1</span><span><span class="cm">&lt;!-- دورة تطوير الويب --&gt;</span></span></div>
+              <div class="code-line"><span class="ln">2</span><span><span class="tag">&lt;!DOCTYPE</span> <span class="attr">html</span><span class="tag">&gt;</span></span></div>
+              <div class="code-line"><span class="ln">3</span><span><span class="tag">&lt;html</span> <span class="attr">lang=</span><span class="str">"ar"</span><span class="tag">&gt;</span></span></div>
+              <div class="code-line"><span class="ln">4</span><span><span class="kw">const</span> <span class="fn">student</span> = {</span></div>
+              <div class="code-line"><span class="ln">5</span><span>&nbsp;&nbsp;<span class="attr">name</span>: <span class="str">"أنت!"</span>,</span></div>
+              <div class="code-line"><span class="ln">6</span><span>&nbsp;&nbsp;<span class="attr">goal</span>: <span class="str">"مطور ويب"</span>,</span></div>
+              <div class="code-line"><span class="ln">7</span><span>&nbsp;&nbsp;<span class="attr">ready</span>: <span class="kw">true</span> 🚀</span></div>
+              <div class="code-line"><span class="ln">8</span><span>};</span></div>
+              <div class="code-line"><span class="ln">9</span><span><span class="fn">console</span>.<span class="fn">log</span>(<span class="str">"يلا نبدأ! 🎯"</span>);</span></div>
+            </div>
+          </div>
+          <div class="floating-badge floating-badge-2"><span style="color:var(--gold)">★</span> Git & GitHub + Deployment</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="about">
+    <div class="container">
+      <div class="about-grid">
+        <div class="reveal">
+          <h2 class="section-title">مصمم للمبتدئين الجادين</h2>
+          <p class="section-subtitle" style="font-family:var(--font-ar)">كورس عملي ومكثف يأخذك من الصفر إلى بناء وتشغيل موقع ويب كامل على الإنترنت.</p>
+          <div class="about-features">
+            <div class="about-feature"><div class="about-feature-icon">🎯</div><div><h4>للمبتدئين</h4><p>شرح مبسط من الصفر</p></div></div>
+            <div class="about-feature"><div class="about-feature-icon">💻</div><div><h4>تطبيق عملي</h4><p>مهام بعد كل محاضرة</p></div></div>
+            <div class="about-feature"><div class="about-feature-icon">🏗️</div><div><h4>مشروع نهائي</h4><p>بناء موقع ويب كامل</p></div></div>
+            <div class="about-feature"><div class="about-feature-icon">🐙</div><div><h4>Git & GitHub</h4><p>تعلم إدارة الكود</p></div></div>
+            <div class="about-feature"><div class="about-feature-icon">🌐</div><div><h4>نشر الموقع</h4><p>رفع المشروع على الإنترنت</p></div></div>
+            <div class="about-feature"><div class="about-feature-icon">💬</div><div><h4>دعم مستمر</h4><p>إجابة الأسئلة طوال الكورس</p></div></div>
+          </div>
+        </div>
+        <div class="reveal" style="transition-delay:.2s">
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-num gradient-text">12</div><div class="stat-label">محاضرة متكاملة</div></div>
+            <div class="stat-card"><div class="stat-num gradient-text">4</div><div class="stat-label">أسابيع تدريب</div></div>
+            <div class="stat-card"><div class="stat-num gradient-text">3</div><div class="stat-label">تقنيات رئيسية</div></div>
+            <div class="stat-card"><div class="stat-num gradient-text">1</div><div class="stat-label">مشروع نهائي حقيقي</div></div>
+          </div>
+          <div class="card mt-16" style="border-color:rgba(37,99,235,.25)">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+              <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--electric),var(--gold));display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1rem">Y</div>
+              <div><div style="font-weight:700">Eng. Yousef S Abdelaziz</div><div style="font-size:.78rem;color:var(--electric-3)">المدرب</div></div>
+            </div>
+            <p style="font-size:.85rem;color:var(--white-70);font-family:var(--font-ar);direction:rtl">مهندس متخصص في تطوير الويب، يقدم تعليماً عملياً يركز على بناء المهارات الحقيقية.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="background:linear-gradient(180deg,transparent,rgba(37,99,235,.04),transparent)">
+    <div class="container">
+      <div class="text-center reveal mb-32">
+        <h2 class="section-title">12 محاضرة متكاملة</h2>
+        <p class="section-subtitle" style="margin:0 auto;font-family:var(--font-ar)">من أساسيات HTML إلى نشر مشروعك على الإنترنت</p>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">
+        <div class="card reveal" style="border-color:rgba(240,113,120,.25)"><div style="color:#f07178;font-size:1.2rem;margin-bottom:8px">🌐</div><div style="font-size:.72rem;font-weight:600;color:#f07178;margin-bottom:6px">الأسبوع الأول</div><div style="font-weight:700;margin-bottom:4px">HTML Foundation</div><div style="font-size:.8rem;color:var(--white-50)">أساسيات HTML · العناصر والوسوم · النماذج والجداول</div></div>
+        <div class="card reveal" style="border-color:rgba(130,170,255,.25);transition-delay:.1s"><div style="color:#82aaff;font-size:1.2rem;margin-bottom:8px">🎨</div><div style="font-size:.72rem;font-weight:600;color:#82aaff;margin-bottom:6px">الأسبوع الثاني</div><div style="font-weight:700;margin-bottom:4px">CSS Mastery</div><div style="font-size:.8rem;color:var(--white-50)">أساسيات CSS · Box Model · Flexbox & Grid</div></div>
+        <div class="card reveal" style="border-color:rgba(245,158,11,.25);transition-delay:.2s"><div style="color:var(--gold);font-size:1.2rem;margin-bottom:8px">⚡</div><div style="font-size:.72rem;font-weight:600;color:var(--gold);margin-bottom:6px">الأسبوع الثالث</div><div style="font-weight:700;margin-bottom:4px">JavaScript</div><div style="font-size:.8rem;color:var(--white-50)">أساسيات JS · المتغيرات · الدوال والمصفوفات</div></div>
+        <div class="card reveal" style="border-color:rgba(16,185,129,.25);transition-delay:.3s"><div style="color:var(--success);font-size:1.2rem;margin-bottom:8px">🚀</div><div style="font-size:.72rem;font-weight:600;color:var(--success);margin-bottom:6px">الأسبوع الرابع</div><div style="font-weight:700;margin-bottom:4px">DOM + Git + Deploy</div><div style="font-size:.8rem;color:var(--white-50)">DOM & Events · Git & GitHub · النشر</div></div>
+      </div>
+      <div class="text-center mt-32">
+        <button class="btn btn-primary btn-lg" onclick="Router.go('page-curriculum')">📖 عرض المنهج الكامل</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-sm">
+    <div class="container">
+      <div class="glass reveal" style="padding:48px;text-align:center;background:linear-gradient(135deg,rgba(37,99,235,.12),rgba(245,158,11,.05))">
+        <h2 style="font-size:clamp(1.4rem,3vw,2rem);font-weight:800;margin-bottom:12px">مستعد تبدأ رحلتك في البرمجة؟</h2>
+        <p style="color:var(--white-70);margin-bottom:28px;font-family:var(--font-ar)">سجّل الآن وابدأ معنا يوم 01/10/2026</p>
+        <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
+          <button class="btn btn-gold btn-lg" onclick="Router.go('page-register')">🚀 اشترك الآن</button>
+          <button class="btn btn-ghost btn-lg" onclick="Router.go('page-support')">💬 تواصل معنا</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <div class="nav-logo"><div class="nav-logo-icon">YS</div><div class="nav-logo-text">YS Academy<span>Web Development — 2026</span></div></div>
+          <p>YS Academy — دورة تطوير الويب المتكاملة — من الأساسيات لحد بناء ونشر مشروع ويب حقيقي.</p>
+        </div>
+        <div class="footer-col">
+          <h4>الكورس</h4>
+          <ul>
+            <li onclick="Router.go('page-curriculum')">المنهج الدراسي</li>
+            <li onclick="Router.go('page-materials')">المواد التعليمية</li>
+            <li onclick="Router.go('page-tasks')">المهام</li>
+            <li onclick="Router.go('page-final-project')">المشروع النهائي</li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>الحساب</h4>
+          <ul>
+            <li onclick="Router.go('page-login')">تسجيل الدخول</li>
+            <li onclick="Router.go('page-register')">إنشاء حساب</li>
+            <li onclick="Router.go('page-dashboard')">لوحة التحكم</li>
+            <li onclick="Router.go('page-support')">الدعم</li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© 2026 YS Academy. All rights reserved.</span>
+        <span>صُنع بـ <span>♥</span> — Eng. Yousef S Abdelaziz</span>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<!-- LOGIN -->
+<div id="page-login" class="page">
+  <div class="auth-page page-content">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="auth-logo-icon">YS</div>
+        <div class="auth-title">تسجيل الدخول</div>
+        <div class="auth-subtitle">مرحباً بك مجدداً في YS Academy</div>
+      </div>
+      <div class="alert" id="login-alert"></div>
+      <form id="login-form">
+        <div class="form-group"><label class="form-label">البريد الإلكتروني</label><input type="email" id="login-email" class="form-input" placeholder="your@email.com" required></div>
+        <div class="form-group"><label class="form-label">كلمة المرور</label><input type="password" id="login-password" class="form-input" placeholder="••••••••" required><div class="form-hint" style="text-align:left"><span class="auth-link" onclick="Router.go('page-forgot')">نسيت كلمة المرور؟</span></div></div>
+        <button type="submit" class="btn btn-primary btn-full btn-lg">تسجيل الدخول</button>
+      </form>
+      <div class="auth-footer">ليس لديك حساب؟ <span class="auth-link" onclick="Router.go('page-register')">اشترك الآن</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- REGISTER -->
+<div id="page-register" class="page">
+  <div class="auth-page page-content">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="auth-logo-icon">🚀</div>
+        <div class="auth-title">إنشاء حساب جديد</div>
+        <div class="auth-subtitle">ابدأ رحلتك في تطوير الويب اليوم</div>
+      </div>
+      <div class="alert" id="register-alert"></div>
+      <form id="register-form">
+        <div class="form-group"><label class="form-label">الاسم الكامل</label><input type="text" id="reg-name" class="form-input" placeholder="أحمد محمد" required></div>
+        <div class="form-group"><label class="form-label">البريد الإلكتروني</label><input type="email" id="reg-email" class="form-input" placeholder="your@email.com" required></div>
+        <div class="form-group"><label class="form-label">كلمة المرور</label><input type="password" id="reg-password" class="form-input" placeholder="6 أحرف على الأقل" required></div>
+        <div class="form-group"><label class="form-label">تأكيد كلمة المرور</label><input type="password" id="reg-confirm" class="form-input" placeholder="••••••••" required></div>
+        <button type="submit" class="btn btn-gold btn-full btn-lg">🚀 إنشاء الحساب</button>
+      </form>
+      <div class="auth-footer">لديك حساب؟ <span class="auth-link" onclick="Router.go('page-login')">تسجيل الدخول</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- FORGOT -->
+<div id="page-forgot" class="page">
+  <div class="auth-page page-content">
+    <div class="auth-card">
+      <div class="auth-logo"><div class="auth-logo-icon">🔑</div><div class="auth-title">نسيت كلمة المرور؟</div><div class="auth-subtitle">أدخل بريدك وسنرسل رابط الاستعادة</div></div>
+      <div class="alert" id="forgot-alert"></div>
+      <form id="forgot-form">
+        <div class="form-group"><label class="form-label">البريد الإلكتروني</label><input type="email" id="forgot-email" class="form-input" placeholder="your@email.com" required></div>
+        <button type="submit" class="btn btn-primary btn-full btn-lg">إرسال رابط الاستعادة</button>
+      </form>
+      <div class="auth-footer"><span class="auth-link" onclick="Router.go('page-login')">← العودة لتسجيل الدخول</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="page-dashboard" class="page page-content">
+  <div class="container-lg">
+    <div class="dashboard-layout">
+      <div class="sidebar">
+        <div class="sidebar-user">
+          <div class="sidebar-avatar" id="dash-avatar">Y</div>
+          <div class="sidebar-name" id="dash-sidebar-name">طالب</div>
+          <div class="sidebar-role">طالب — YS Academy</div>
+        </div>
+        <nav class="sidebar-nav">
+          <div class="sidebar-link active" onclick="Router.go('page-dashboard')"><span class="sidebar-link-icon">📊</span> لوحة التحكم</div>
+          <div class="sidebar-link" onclick="Router.go('page-curriculum')"><span class="sidebar-link-icon">📚</span> المنهج</div>
+          <div class="sidebar-link" onclick="Router.go('page-tasks')"><span class="sidebar-link-icon">✅</span> المهام</div>
+          <div class="sidebar-link" onclick="Router.go('page-final-project')"><span class="sidebar-link-icon">🏗️</span> المشروع النهائي</div>
+          <div class="sidebar-link" onclick="Router.go('page-materials')"><span class="sidebar-link-icon">📁</span> المواد</div>
+          <div class="sidebar-link" onclick="Router.go('page-git')"><span class="sidebar-link-icon">🐙</span> Git & GitHub</div>
+          <div class="sidebar-link" onclick="Router.go('page-support')"><span class="sidebar-link-icon">💬</span> الدعم</div>
+          <div class="sidebar-link" onclick="logout()" style="color:var(--danger);margin-top:8px"><span class="sidebar-link-icon">🚪</span> تسجيل الخروج</div>
+        </nav>
+        <div class="sidebar-progress">
+          <div class="progress-label"><span>تقدمك في الكورس</span><span class="progress-pct" id="sidebar-pct">0%</span></div>
+          <div id="sidebar-progress-bar"></div>
+        </div>
+      </div>
+      <div class="dash-main">
+        <div class="dash-header">
+          <div class="dash-greeting">مرحباً، <span id="dash-greeting-name">طالب</span> 👋</div>
+          <div class="dash-sub">استمر في التعلم — كل محاضرة تقربك خطوة من هدفك</div>
+        </div>
+        <div id="completion-banner" class="hidden" style="background:linear-gradient(135deg,rgba(16,185,129,.15),rgba(245,158,11,.1));border:1px solid rgba(16,185,129,.3);border-radius:var(--radius-lg);padding:20px 24px;margin-bottom:24px;text-align:center">
+          <div style="font-size:2rem;margin-bottom:8px">🎉</div>
+          <div style="font-weight:800;font-size:1.1rem;margin-bottom:4px">أنهيت الكورس!</div>
+          <button class="btn btn-gold mt-16" onclick="Router.go('page-final-project')">🏗 المشروع النهائي</button>
+        </div>
+        <div class="dash-stats-grid">
+          <div class="dash-stat"><div class="dash-stat-icon">📊</div><div class="dash-stat-val gradient-text" id="dash-pct">0%</div><div class="dash-stat-label">نسبة الإنجاز</div></div>
+          <div class="dash-stat"><div class="dash-stat-icon">✅</div><div class="dash-stat-val text-blue" id="dash-done">0</div><div class="dash-stat-label">محاضرات مكتملة</div></div>
+          <div class="dash-stat"><div class="dash-stat-icon">⏳</div><div class="dash-stat-val text-gold" id="dash-remaining">12</div><div class="dash-stat-label">محاضرات متبقية</div></div>
+          <div class="dash-stat"><div class="dash-stat-icon">📚</div><div class="dash-stat-val" id="dash-total">12</div><div class="dash-stat-label">إجمالي المحاضرات</div></div>
+        </div>
+        <div class="card mb-24" style="padding:20px 24px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <span style="font-weight:600;font-size:.9rem">تقدم الكورس</span>
+          </div>
+          <div id="dash-progress-bar"></div>
+          <div style="margin-top:12px"><button class="btn btn-primary btn-sm" id="continue-btn">▶ استمر في التعلم</button></div>
+        </div>
+        <div class="dash-sections">
+          <div class="dash-section-card">
+            <div class="dash-section-title"><span>📚</span> المحاضرات الأخيرة</div>
+            <div id="recent-lectures-list"></div>
+            <button class="btn btn-ghost btn-sm btn-full mt-16" onclick="Router.go('page-curriculum')">عرض الكل</button>
+          </div>
+          <div class="dash-section-card">
+            <div class="dash-section-title"><span>⚡</span> المهام المعلقة</div>
+            <div id="pending-tasks-list"></div>
+            <button class="btn btn-ghost btn-sm btn-full mt-16" onclick="Router.go('page-tasks')">عرض كل المهام</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CURRICULUM -->
+<div id="page-curriculum" class="page page-content">
+  <div class="container section-sm">
+    <div class="text-center mb-32">
+      <h1 class="section-title">📚 المنهج الدراسي</h1>
+      <p class="section-subtitle" style="margin:0 auto;font-family:var(--font-ar)">12 محاضرة خلال 4 أسابيع</p>
+    </div>
+    <div id="curriculum-list"></div>
+  </div>
+</div>
+
+<!-- LECTURE -->
+<div id="page-lecture" class="page page-content">
+  <div class="container-lg">
+    <div class="lecture-layout">
+      <div class="lecture-main">
+        <div class="lecture-breadcrumb" id="lec-breadcrumb"></div>
+        <div style="margin-bottom:20px">
+          <span id="lec-tag" class="lecture-tag html">HTML</span>
+          <h1 class="lecture-h1" id="lec-title">Lecture Title</h1>
+          <div style="font-family:var(--font-ar);color:var(--white-50);font-size:.9rem" id="lec-title-ar"></div>
+          <div style="font-size:.8rem;color:var(--white-30);margin-top:4px">⏱ <span id="lec-duration">~60 min</span></div>
+        </div>
+        <div id="video-container" class="mb-24">
+          <div id="video-player" style="display:none;width:100%;aspect-ratio:16/9;border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-lg)">
+            <iframe id="video-iframe" width="100%" height="100%" frameborder="0" allowfullscreen allow="autoplay"></iframe>
+          </div>
+          <div class="video-placeholder" id="video-placeholder">
+            <div class="video-play-btn">▶</div>
+            <div class="video-label" id="video-label">📹 سيتم إضافة الفيديو قريباً</div>
+          </div>
+        </div>
+        <div class="content-block">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px">
+            <div id="lec-material-download"><button class="btn btn-ghost btn-full" style="padding:18px;font-size:1rem;border-radius:var(--radius-lg)" disabled>📚 Materials</button></div>
+            <button class="btn btn-primary btn-full" style="padding:18px;font-size:1rem;border-radius:var(--radius-lg)" onclick="document.querySelector('.task-card').scrollIntoView({behavior:'smooth'})">📝 Assignment</button>
+          </div>
+        </div>
+        <div class="content-block">
+          <h3><span class="block-icon">📋</span> محتوى المحاضرة</h3>
+          <div id="lec-desc" style="font-size:.9rem;color:var(--white-70);line-height:1.8"></div>
+        </div>
+        <div class="content-block">
+          <h3><span class="block-icon">🎯</span> أهداف التعلم</h3>
+          <div class="objectives-list" id="lec-objectives"></div>
+        </div>
+        <div class="content-block">
+          <h3><span class="block-icon">💻</span> مثال كود</h3>
+          <div class="code-block">
+            <div class="code-block-header"><span class="code-lang" id="lec-code-lang">HTML</span><button class="copy-btn" onclick="copyCode(this)">📋 نسخ</button></div>
+            <pre id="lec-code-content"></pre>
+          </div>
+        </div>
+        <div style="border-top:1px solid var(--white-10);padding-top:20px;margin-top:8px">
+          <button class="btn btn-primary" id="mark-complete-btn">✓ اضغط لتأشير كمكتملة</button>
+        </div>
+      </div>
+      <div class="lecture-sidebar">
+        <div class="task-card">
+          <div class="task-card-header"><div class="task-icon">📝</div><div class="task-title" id="task-title">مهمة المحاضرة</div></div>
+          <div style="font-family:var(--font-ar);font-size:.8rem;color:var(--gold);margin-bottom:8px;direction:rtl" id="task-title-ar"></div>
+          <div id="task-status-badge" class="task-status-badge pending">⏳ معلقة</div>
+          <p class="task-desc" id="task-desc"></p>
+          <div class="task-requirements" id="task-requirements"></div>
+          <div class="task-submit" id="task-submit-form">
+            <div style="font-size:.8rem;font-weight:600;margin-bottom:8px;color:var(--white-70)">تسليم المهمة:</div>
+            <input type="url" id="task-url" class="task-input" placeholder="رابط المشروع / GitHub">
+            <textarea id="task-note" class="task-input" rows="2" placeholder="ملاحظات..." style="resize:vertical"></textarea>
+            <button class="btn btn-gold btn-full" id="submit-task-btn">📤 تسليم المهمة</button>
+          </div>
+          <div class="nav-lectures">
+            <button class="btn btn-ghost" id="prev-lecture-btn">← السابقة</button>
+            <button class="btn btn-primary" id="next-lecture-btn">التالية →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TASKS -->
+<div id="page-tasks" class="page page-content">
+  <div class="container section-sm">
+    <div class="mb-32"><h1 class="section-title">✅ المهام</h1><p class="section-subtitle" style="font-family:var(--font-ar)">كل محاضرة لها مهمة عملية</p></div>
+    <div id="all-tasks-list"></div>
+  </div>
+</div>
+
+<!-- FINAL PROJECT -->
+<div id="page-final-project" class="page page-content">
+  <div class="container-sm section-sm">
+    <div class="mb-32"><h1 class="section-title">🏆 المشروع النهائي</h1><p class="section-subtitle" style="font-family:var(--font-ar)">ابنِ موقع ويب كاملاً باستخدام HTML وCSS وJavaScript</p></div>
+    <div class="card mb-24">
+      <h3 style="font-weight:700;margin-bottom:16px">📋 متطلبات المشروع</h3>
+      <div class="project-requirements">
+        <div class="project-req"><span class="project-req-icon">◆</span> موقع متعدد الصفحات (3 صفحات على الأقل)</div>
+        <div class="project-req"><span class="project-req-icon">◆</span> تصميم متجاوب</div>
+        <div class="project-req"><span class="project-req-icon">◆</span> HTML Semantic صحيح</div>
+        <div class="project-req"><span class="project-req-icon">◆</span> CSS احترافي مع Flexbox أو Grid</div>
+        <div class="project-req"><span class="project-req-icon">◆</span> JavaScript تفاعلي</div>
+        <div class="project-req"><span class="project-req-icon">◆</span> رفع على GitHub ونشر على الإنترنت</div>
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(245,158,11,.25)">
+      <h3 style="font-weight:700;margin-bottom:16px">📤 تسليم المشروع</h3>
+      <div id="fp-status" style="margin-bottom:12px"></div>
+      <div class="form-group"><label class="form-label">رابط GitHub Repository</label><input type="url" id="fp-github" class="form-input" placeholder="https://github.com/username/project"></div>
+      <div class="form-group"><label class="form-label">رابط الموقع الحي (Live URL)</label><input type="url" id="fp-live" class="form-input" placeholder="https://username.github.io/project"></div>
+      <div class="form-group"><label class="form-label">وصف المشروع</label><textarea id="fp-notes" class="form-input" rows="3" placeholder="صف مشروعك باختصار..."></textarea></div>
+      <button class="btn btn-gold btn-full btn-lg" id="fp-submit-btn">🏆 تسليم المشروع النهائي</button>
+    </div>
+  </div>
+</div>
+
+<!-- GIT -->
+<div id="page-git" class="page page-content">
+  <div class="container section-sm">
+    <div class="mb-32"><h1 class="section-title">🐙 Git & GitHub</h1><p class="section-subtitle" style="font-family:var(--font-ar)">تعلم إدارة الكود ومشاركته</p></div>
+    <div class="tabs" id="git-tabs">
+      <button class="tab-btn active" data-tab="tab-git">📁 Git</button>
+      <button class="tab-btn" data-tab="tab-github">🐙 GitHub</button>
+      <button class="tab-btn" data-tab="tab-deploy">🚀 Deployment</button>
+    </div>
+    <div class="tab-panel active" id="tab-git">
+      <div class="card mb-16"><h3 style="font-weight:700;margin-bottom:12px">ما هو Git؟</h3><p style="color:var(--white-70);font-size:.9rem;line-height:1.8">Git هو نظام تحكم في الإصدارات. يتتبع كل التغييرات على ملفاتك ويتيح لك العودة لأي نقطة سابقة.</p></div>
+      <div class="card">
+        <h3 style="font-weight:700;margin-bottom:16px">أوامر Git الأساسية</h3>
+        <div class="git-steps">
+          <div class="git-step"><div class="git-step-num">1</div><div class="git-step-content"><h4>إنشاء مستودع</h4><code class="command-line">git init</code></div></div>
+          <div class="git-step"><div class="git-step-num">2</div><div class="git-step-content"><h4>إضافة الملفات</h4><code class="command-line">git add .</code></div></div>
+          <div class="git-step"><div class="git-step-num">3</div><div class="git-step-content"><h4>إنشاء Commit</h4><code class="command-line">git commit -m "message"</code></div></div>
+          <div class="git-step"><div class="git-step-num">4</div><div class="git-step-content"><h4>عرض الحالة</h4><code class="command-line">git status</code></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="tab-panel" id="tab-github">
+      <div class="card"><h3 style="font-weight:700;margin-bottom:12px">ما هو GitHub؟</h3><p style="color:var(--white-70);font-size:.9rem;line-height:1.8">GitHub منصة تستضيف مستودعات Git على الإنترنت.</p>
+        <div class="git-steps">
+          <div class="git-step"><div class="git-step-num">1</div><div class="git-step-content"><h4>أنشئ حساباً</h4><p>اذهب إلى <a href="https://github.com" target="_blank" style="color:var(--electric-2)">github.com</a></p></div></div>
+          <div class="git-step"><div class="git-step-num">2</div><div class="git-step-content"><h4>أنشئ Repository</h4><code class="command-line">git remote add origin https://github.com/user/repo.git</code></div></div>
+          <div class="git-step"><div class="git-step-num">3</div><div class="git-step-content"><h4>ارفع الكود</h4><code class="command-line">git push -u origin main</code></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="tab-panel" id="tab-deploy">
+      <div class="card mb-16"><h3 style="font-weight:700;margin-bottom:12px">GitHub Pages (مجاني)</h3>
+        <div class="git-steps">
+          <div class="git-step"><div class="git-step-num">1</div><div class="git-step-content"><h4>ارفع على GitHub</h4><code class="command-line">git push origin main</code></div></div>
+          <div class="git-step"><div class="git-step-num">2</div><div class="git-step-content"><h4>فعّل GitHub Pages</h4><p>Settings → Pages → Source → main → Save</p></div></div>
+          <div class="git-step"><div class="git-step-num">3</div><div class="git-step-content"><h4>موقعك حي! 🎉</h4><p><code class="command-line" style="display:inline">https://username.github.io/repo</code></p></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MATERIALS -->
+<div id="page-materials" class="page page-content">
+  <div class="container section-sm">
+    <div class="mb-32"><h1 class="section-title">📁 المواد التعليمية</h1><p class="section-subtitle" style="font-family:var(--font-ar)">منظمة حسب كل محاضرة</p></div>
+    <div id="materials-by-lecture"></div>
+  </div>
+</div>
+
+<!-- SUPPORT -->
+<div id="page-support" class="page page-content">
+  <div class="container section-sm">
+    <div class="text-center mb-32"><h1 class="section-title">💬 الدعم والمساعدة</h1></div>
+    <div class="contact-grid mb-32">
+      <div class="contact-method">
+        <div class="contact-icon whatsapp">💬</div>
+        <h3 style="font-weight:700;margin-bottom:8px">WhatsApp</h3>
+        <p style="font-size:.85rem;color:var(--white-70);margin-bottom:16px">تواصل مباشرةً للأسئلة السريعة</p>
+        <button class="btn btn-success btn-sm" onclick="window.open('https://wa.me/','_blank')">💬 فتح WhatsApp</button>
+      </div>
+      <div class="contact-method">
+        <div class="contact-icon email">📧</div>
+        <h3 style="font-weight:700;margin-bottom:8px">نموذج التواصل</h3>
+        <p style="font-size:.85rem;color:var(--white-70);margin-bottom:16px">أرسل سؤالك عبر النموذج</p>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('contact-form-section').scrollIntoView({behavior:'smooth'})">📧 أرسل رسالة</button>
+      </div>
+    </div>
+    <div class="mb-32">
+      <h2 style="font-size:1.3rem;font-weight:800;margin-bottom:20px">❓ الأسئلة الشائعة</h2>
+      <div class="faq-list">
+        <div class="faq-item"><div class="faq-question">هل أحتاج خلفية برمجية مسبقة؟ <span class="faq-arrow">▼</span></div><div class="faq-answer">لا، الكورس مصمم للمبتدئين الكاملين.</div></div>
+        <div class="faq-item"><div class="faq-question">ما البرامج التي أحتاجها؟ <span class="faq-arrow">▼</span></div><div class="faq-answer">VS Code، متصفح Chrome أو Firefox، وحساب GitHub مجاني.</div></div>
+        <div class="faq-item"><div class="faq-question">كيف أسلّم المهام؟ <span class="faq-arrow">▼</span></div><div class="faq-answer">من صفحة كل محاضرة، أضف رابط مشروعك واضغط "تسليم المهمة".</div></div>
+        <div class="faq-item"><div class="faq-question">هل الكورس مجاني؟ <span class="faq-arrow">▼</span></div><div class="faq-answer">للاستفسار عن تفاصيل الكورس، تواصل مع المدرب مباشرةً.</div></div>
+      </div>
+    </div>
+    <div id="contact-form-section">
+      <h2 style="font-size:1.3rem;font-weight:800;margin-bottom:20px">📩 أرسل رسالة</h2>
+      <div class="card" style="max-width:600px">
+        <form id="support-form">
+          <div class="form-group"><label class="form-label">الاسم</label><input type="text" id="support-name" class="form-input" placeholder="اسمك" required></div>
+          <div class="form-group"><label class="form-label">البريد الإلكتروني</label><input type="email" id="support-email" class="form-input" placeholder="your@email.com" required></div>
+          <div class="form-group"><label class="form-label">الرسالة</label><textarea id="support-message" class="form-input" rows="4" placeholder="اكتب سؤالك هنا..." required></textarea></div>
+          <button type="submit" class="btn btn-primary btn-full">📤 إرسال</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN -->
+<div id="page-admin" class="page page-content">
+  <div class="container-lg">
+    <div class="admin-layout">
+      <div class="sidebar">
+        <div class="sidebar-user">
+          <div class="sidebar-avatar" style="background:linear-gradient(135deg,var(--gold),#d97706)">Y</div>
+          <div class="sidebar-name">Eng. Yousef</div>
+          <div class="sidebar-role" style="color:var(--gold)">مدرب / Admin</div>
+        </div>
+        <nav class="sidebar-nav">
+          <div class="sidebar-link active" onclick="showAdminTab('overview',this)"><span class="sidebar-link-icon">📊</span> الإحصائيات</div>
+          <div class="sidebar-link" onclick="showAdminTab('requests',this)" id="requests-sidebar-link"><span class="sidebar-link-icon">📨</span> طلبات الانضمام <span id="requests-badge" style="margin-right:auto;background:var(--gold);color:var(--navy);font-size:.68rem;font-weight:700;padding:1px 7px;border-radius:50px;display:none">0</span></div>
+          <div class="sidebar-link" onclick="showAdminTab('students',this)"><span class="sidebar-link-icon">👥</span> الطلاب</div>
+          <div class="sidebar-link" onclick="showAdminTab('task-submissions',this)"><span class="sidebar-link-icon">📤</span> التسليمات</div>
+          <div class="sidebar-link" onclick="showAdminTab('messages',this)"><span class="sidebar-link-icon">💬</span> الرسائل</div>
+          <div class="sidebar-link" onclick="showAdminTab('lectures-mgmt',this)"><span class="sidebar-link-icon">📚</span> المحاضرات</div>
+          <div class="sidebar-link" onclick="logout()" style="color:var(--danger);margin-top:8px"><span class="sidebar-link-icon">🚪</span> تسجيل الخروج</div>
+        </nav>
+      </div>
+      <div style="min-width:0">
+        <div class="dash-header">
+          <div class="dash-greeting">لوحة تحكم المدرب <span style="color:var(--gold)">⚙</span></div>
+          <div class="dash-sub">YS Academy — Web Development Course — First Round</div>
+        </div>
+
+        <!-- Overview -->
+        <div id="admin-tab-overview">
+          <div class="admin-stats-grid">
+            <div class="admin-stat"><div class="admin-stat-icon">👥</div><div class="admin-stat-val text-blue" id="admin-total-students">0</div><div class="admin-stat-label">إجمالي الطلاب</div></div>
+            <div class="admin-stat"><div class="admin-stat-icon">✅</div><div class="admin-stat-val text-blue" id="admin-active-students">0</div><div class="admin-stat-label">طلاب نشطون</div></div>
+            <div class="admin-stat"><div class="admin-stat-icon">📚</div><div class="admin-stat-val gradient-text" id="admin-completed-lectures">0</div><div class="admin-stat-label">محاضرات مكتملة</div></div>
+            <div class="admin-stat"><div class="admin-stat-icon">📤</div><div class="admin-stat-val text-gold" id="admin-submitted-tasks">0</div><div class="admin-stat-label">تسليمات المهام</div></div>
+            <div class="admin-stat"><div class="admin-stat-icon">💬</div><div class="admin-stat-val" id="admin-messages">0</div><div class="admin-stat-label">رسائل جديدة</div></div>
+          </div>
+          <div class="card"><div style="font-weight:700;margin-bottom:12px">📋 معلومات الكورس</div><div style="font-size:.85rem;color:var(--white-70);display:flex;flex-direction:column;gap:6px"><div>📅 تاريخ البداية: <strong style="color:var(--white)">01/10/2026</strong></div><div>📚 عدد المحاضرات: <strong style="color:var(--white)">12</strong></div><div>📆 الجدول: <strong style="color:var(--white)">3 محاضرات / أسبوع</strong></div><div>⏳ المدة: <strong style="color:var(--white)">4 أسابيع</strong></div></div></div>
+        </div>
+
+        <!-- Requests -->
+        <div id="admin-tab-requests" class="hidden">
+          <div style="font-weight:700;margin-bottom:6px;font-size:.95rem">📨 طلبات الانضمام</div>
+          <div style="font-size:.82rem;color:var(--white-50);margin-bottom:20px">الطلاب اللي سجلوا وبينتظروا موافقتك</div>
+          <div id="admin-requests-list"><p style="color:var(--white-50)">لا توجد طلبات جديدة</p></div>
+        </div>
+
+        <!-- Students -->
+        <div id="admin-tab-students" class="hidden">
+          <div class="card">
+            <div style="font-weight:700;margin-bottom:16px;font-size:.95rem">👥 الطلاب المسجلون</div>
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>الاسم</th><th>البريد</th><th>التسجيل</th><th>الحالة</th><th>التقدم</th><th>إجراءات</th></tr></thead>
+                <tbody id="admin-students-tbody"><tr><td colspan="6" style="text-align:center;color:var(--white-50);padding:32px">لا يوجد طلاب بعد</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Task Submissions -->
+        <div id="admin-tab-task-submissions" class="hidden">
+          <div class="card">
+            <div style="font-weight:700;margin-bottom:16px;font-size:.95rem">📤 تسليمات المهام</div>
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>الطالب</th><th>المحاضرة</th><th>التاريخ</th><th>الرابط</th><th>الحالة</th><th>مراجعة</th></tr></thead>
+                <tbody id="admin-tasks-tbody"><tr><td colspan="6" style="text-align:center;color:var(--white-50);padding:32px">لا توجد تسليمات</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Messages -->
+        <div id="admin-tab-messages" class="hidden">
+          <div style="font-weight:700;margin-bottom:16px;font-size:.95rem">💬 رسائل الدعم</div>
+          <div id="admin-messages-list"><p style="color:var(--white-50)">لا توجد رسائل</p></div>
+        </div>
+
+        <!-- Lectures Management -->
+        <div id="admin-tab-lectures-mgmt" class="hidden">
+          <div class="card mb-16">
+            <div style="font-weight:700;margin-bottom:6px;font-size:.95rem">🎬 إدارة الفيديوهات</div>
+            <div style="padding:10px 14px;background:rgba(37,99,235,.08);border:1px solid rgba(37,99,235,.2);border-radius:8px;font-size:.82rem;color:var(--electric-3);margin-bottom:16px">
+              💡 بعد الضغط على إخفاء/إظهار — انسخ الأمر الظاهر في CMD وارفع على GitHub عشان يتطبق على الطلاب
+            </div>
+            <div id="admin-videos-list"></div>
+          </div>
+          <div class="card mb-16">
+            <div style="font-weight:700;margin-bottom:6px;font-size:.95rem">📚 إدارة المحاضرات</div>
+            <div style="padding:10px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;font-size:.82rem;color:var(--gold);margin-bottom:16px">🙈 الإخفاء المؤقت = المحاضرة موجودة بس مش بتظهر للطلاب</div>
+            <div id="admin-lectures-list"></div>
+          </div>
+          <div class="card mb-16">
+            <div style="font-weight:700;margin-bottom:16px;font-size:.95rem">✅ إخفاء التاسكات مؤقتاً</div>
+            <div id="admin-tasks-visibility-list"></div>
+          </div>
+          <!-- CMD Command Box -->
+          <div id="cmd-command-box" class="hidden" style="margin-top:16px">
+            <div style="padding:16px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:var(--radius)">
+              <div style="font-weight:700;margin-bottom:8px;color:var(--success)">✅ انسخ هذا الأمر في CMD وشغّله:</div>
+              <div id="cmd-command-text" style="background:#0d1117;padding:12px;border-radius:8px;font-family:var(--font-code);font-size:.78rem;color:#c3e88d;word-break:break-all;margin-bottom:10px"></div>
+              <button class="btn btn-success btn-sm" onclick="copyCMD()">📋 نسخ الأمر</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /app -->
+
+<script src="js/data.js"></script>
+<script src="js/router.js"></script>
+<script src="js/auth.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  initAuth();
+  document.querySelectorAll('[id$="-tabs"]').forEach(c => initTabs(c));
+  UI.updateNavbar();
+
+  window.showAdminTab = function(tab, clickedEl) {
+    const tabKeys = ['overview','requests','students','task-submissions','messages','lectures-mgmt'];
+    tabKeys.forEach(t => { const el = document.getElementById('admin-tab-' + t); if (el) el.classList.add('hidden'); });
+    const target = document.getElementById('admin-tab-' + tab);
+    if (target) target.classList.remove('hidden');
+    document.querySelectorAll('#page-admin .sidebar-link').forEach(l => l.classList.remove('active'));
+    if (clickedEl) clickedEl.classList.add('active');
+  };
+
+  initReveal();
+});
+
+function toggleMobileMenu() {
+  document.getElementById('mobile-menu').classList.toggle('open');
+  document.getElementById('hamburger').classList.toggle('open');
+}
+
+function copyCode(btn) {
+  const pre = btn.closest('.code-block').querySelector('pre');
+  if (!pre) return;
+  navigator.clipboard.writeText(pre.textContent).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✅ تم النسخ';
+    setTimeout(() => btn.textContent = orig, 2000);
+  });
+}
+
+function openMaterial(url, title) {
+  UI.modal(`
+    <div class="modal-header"><div class="modal-title">📖 ${title}</div><button class="modal-close">✕</button></div>
+    <div style="width:100%;height:70vh;border-radius:var(--radius);overflow:hidden">
+      <iframe src="${url}" width="100%" height="100%" frameborder="0" sandbox="allow-scripts allow-same-origin allow-popups" allowfullscreen></iframe>
+    </div>
+    <div style="font-size:.75rem;color:var(--white-30);text-align:center;margin-top:8px">📖 وضع القراءة فقط</div>
+  `);
+  document.getElementById('modal-box').style.maxWidth = '900px';
+  document.getElementById('modal-box').style.width = '95vw';
+}
+
+function copyCMD() {
+  const cmd = document.getElementById('cmd-command-text').textContent;
+  navigator.clipboard.writeText(cmd).then(() => UI.toast('✅ تم نسخ الأمر — الصقه في CMD', 'success'));
+}
+
+function toggleVideoVisibility(lectureId, currentlyVisible) {
+  const newVal = !currentlyVisible;
+  // Build the sed command to change videoVisible in data.js
+  const action = newVal ? 'إظهار' : 'إخفاء';
+  const newValStr = newVal ? 'true' : 'false';
+
+  // Show CMD command
+  const cmdBox = document.getElementById('cmd-command-box');
+  const cmdText = document.getElementById('cmd-command-text');
+  if (cmdBox && cmdText) {
+    const cmd = `cd "C:\\Users\\Eng Yousef Salah\\Desktop\\web coruse\\platform" && rmdir /s /q .git && git init && git add . && git commit -m "${action} فيديو محاضرة ${lectureId}" && git remote add origin https://github.com/yousefsabdelaziz-byte/web-dev-course.git && git branch -M main && git push -f origin main`;
+    cmdText.textContent = cmd;
+    cmdBox.classList.remove('hidden');
+    cmdBox.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  // Update the lecture in COURSE_DATA
+  const lecture = COURSE_DATA.lectures.find(l => l.id === lectureId);
+  if (lecture) {
+    lecture.videoVisible = newVal;
+    UI.toast(`تم ${action} الفيديو — انسخ الأمر وارفع على GitHub ⬆️`, 'info');
+    PageInits['page-admin']();
+  }
+}
+
+function showStudentDetail(userId) {
+  const user = State.getUserById(userId);
+  if (!user) return;
+  const done = Object.values(user.progress || {}).filter(Boolean).length;
+  const pct = Math.round((done / COURSE_DATA.totalLectures) * 100);
+  UI.modal(`
+    <div class="modal-header"><div class="modal-title">📋 ${user.name}</div><button class="modal-close">✕</button></div>
+    <div style="font-size:.82rem;color:var(--white-50);margin-bottom:12px">${user.email} | انضم: ${user.joinDate}</div>
+    <div class="d-flex align-center gap-8 mb-8"><span>التقدم:</span><strong>${pct}%</strong></div>
+    ${UI.progressBar(pct)}
+    <div style="margin-top:20px">
+      <div style="font-weight:700;margin-bottom:10px;font-size:.875rem">🔓 التحكم في المحاضرات:</div>
+      <div style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto">
+        ${COURSE_DATA.lectures.map(l => {
+          const allowed = State.isLectureAllowedForStudent(userId, l.id);
+          return `<div class="d-flex align-center justify-between" style="padding:8px 12px;background:var(--white-05);border-radius:8px">
+            <span style="font-size:.82rem">${String(l.id).padStart(2,'0')}. ${l.title}</span>
+            <button class="btn btn-sm ${allowed ? 'btn-danger' : 'btn-success'}"
+              onclick="${allowed ? `State.revokeLectureForStudent('${userId}',${l.id})` : `State.allowLectureForStudent('${userId}',${l.id})`};showStudentDetail('${userId}');UI.toast('تم التحديث','success')">
+              ${allowed ? '🔒 إغلاق' : '🔓 فتح'}
+            </button>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-success btn-sm flex-1" onclick="COURSE_DATA.lectures.forEach(l=>State.allowLectureForStudent('${userId}',l.id));showStudentDetail('${userId}')">🔓 فتح الكل</button>
+        <button class="btn btn-danger btn-sm flex-1" onclick="COURSE_DATA.lectures.forEach(l=>State.revokeLectureForStudent('${userId}',l.id));showStudentDetail('${userId}')">🔒 إغلاق الكل</button>
+      </div>
+    </div>
+  `);
+  document.getElementById('modal-box').style.maxWidth = '600px';
+  document.getElementById('modal-box').style.width = '95vw';
+}
+
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('mobile-menu');
+  const ham = document.getElementById('hamburger');
+  if (menu && ham && menu.classList.contains('open')) {
+    if (!menu.contains(e.target) && !ham.contains(e.target)) {
+      menu.classList.remove('open');
+      ham.classList.remove('open');
+    }
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { UI.closeModal(); UI.closeMobileMenu(); }
+});
+</script>
+</body>
+</html>
